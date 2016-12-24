@@ -1,0 +1,258 @@
+---
+title: "Final Project"
+author: "Andrew Goldberg"
+date: "December 23, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r retrieve data}
+train.raw.data <- read.csv('https://raw.githubusercontent.com/aagoldberg/Cuny/master/train.csv', header = T, na.strings = "NA")
+
+Y <- train.raw.data$SalePrice #sale price as dependent variable
+X <- train.raw.data$OverallQual #overall housing quality as independent variable
+
+#Checking that independent variable is skewed to the right
+library(moments)
+skewness(train.raw.data$OverallQual)
+hist(train.raw.data$OverallQual, main = "Histogram of Overall Housing Quality", xlab = "Overall Quality")
+
+train.XY <- data.frame(X,Y)
+```
+Probability 
+```{r Probability}
+#"x" = 3rd quartile of X
+#"y" = 2nd quartile of Y variable
+#Interpret the meaning of all probabilities.
+
+#finding quartiles
+train.OverallQual.quartile <- quantile(train.XY$X, probs = seq(0, 1, 0.25))
+train.OverallQual.quartile
+
+train.SalePrice.quartile <- quantile(train.XY$Y, probs = seq(0, 1, 0.25), na.rm = F)
+train.SalePrice.quartile
+
+#a.	 P(X>x | Y>y)
+#The percent of all the 3rd and 4th quartile priced houses that are in the top quartile in overall quality ratings 
+
+Yover2Q <- subset(train.XY, Y > train.SalePrice.quartile["50%"]) 
+Xover3Q.andYover2q <- subset(train.XY, X > train.OverallQual.quartile["75%"] & Y > train.SalePrice.quartile["50%"]) 
+length(Xover3Q.andYover2q$X)/length(Yover2Q$X) 
+
+#b.  P(X>x, Y>y)
+#The percent of all of the houses that are both in the 3rd and 4th quartile in price and the top quartile in overall quality ratings
+Xover3Q.andYover2q <- subset(train.XY, X > train.OverallQual.quartile["75%"] & Y > train.SalePrice.quartile["50%"]) 
+length(Xover3Q.andYover2q$X)/length(train.XY$X)
+
+#c.  P(X<x | Y>y)
+#The percent of all the 3rd and 4th quartile priced houses that are rated in the lower two quartiles in overall quality
+Xbelow3Q.andYover2Q <- subset(train.XY, X < train.OverallQual.quartile["75%"] & Y > train.SalePrice.quartile["50%"])
+length(Xbelow3Q.andYover2Q$X)/length(Yover2Q$X)
+
+#preparing data for counts chart
+Xlessequal3Q.Ylessequal2Q <- subset(train.XY, X <= train.OverallQual.quartile["75%"] & Y <= train.SalePrice.quartile["50%"])
+Xlessequal3Q.Yover2Q <- subset(train.XY, X <= train.OverallQual.quartile["75%"] & Y > train.SalePrice.quartile["50%"])
+Xover3Q.Ylessequal2Q <- subset(train.XY, X > train.OverallQual.quartile["75%"] & Y <= train.SalePrice.quartile["50%"])
+Xover3Q.Yover2Q <- subset(train.XY, X > train.OverallQual.quartile["75%"] & Y > train.SalePrice.quartile["50%"])
+
+XlYl <- length(Xlessequal3Q.Ylessequal2Q$X)
+XlYo <- length(Xlessequal3Q.Yover2Q$X)
+XoYl <- length(Xover3Q.Ylessequal2Q$X)
+XoYo <- length(Xover3Q.Yover2Q$X)
+
+counts.chart <- matrix(c(XlYl, XlYo, XlYl+XlYo, XoYl, XoYo, XoYl+XoYo, XlYl+XoYl, XlYo+XoYo, XlYl+XoYl+XlYo+XoYo), nrow = 3, byrow = T)
+colnames(counts.chart) <- c("y<=2d quartile", "y>2d quartile", "Total")
+rownames(counts.chart) <- c("x<=3d quartile", "x>3d quartile", "Total")
+counts.chart
+
+#Checking if splitting the training data in this fashion make them independent
+pA <- XoYl+XoYo
+pB <- XoYo+XlYo
+prob.pA <- pA/1460
+prob.pB <- pB/1460
+prob.pAXpB <- prob.pA*prob.pB
+prob.pAXpB #P(A)P(B)
+
+pAandB <- XoYo/1460
+prob.AgivenB <- pAandB/prob.pB 
+prob.AgivenB #P(A|B)
+
+#so prob.pAandB =/= prob.pAXpB, meaning they are not independent
+
+#chi-squared test
+library(MASS)
+#Condensing into smaller contingency table, because there are fewer than 5 cases for many of the prices
+train.SalePrice.quartile
+train.XY[,"pricing.group"] <- NA
+train.XY$pricing.group[Y <= 129975] <- "0 - 129975"
+train.XY$pricing.group[Y > 129975 & Y <= 163000] <- "129976 - 163000"
+train.XY$pricing.group[Y > 163000 & Y <= 214000] <- "163001 - 214000"
+train.XY$pricing.group[Y > 214000] <- "214000+"
+
+tbl <- table(train.XY$pricing.group, train.XY$X)
+tbl #still not 5 entries in every table, but moving forward...
+chisq.test(tbl) #with a large X-squared of 1293.8 and such a small p-value, we can be comfortable calling these variables independent and rejecting the null hypothesis
+```
+Descriptive and Inferential Statistics
+```{r statistics}
+#Provide univariate descriptive statistics and appropriate plots for the training data set.
+summary(train.XY)
+options(scipen=5)
+hist(train.XY$X, xlab = "Overall Quality", main = "Distribution of Overall Housing Quality")
+hist(train.XY$Y, xlab = "Sale Price", main = "Distribution of Housing Sale Prices")
+
+
+#Provide a scatterplot of X and Y.
+library(ggplot2)
+plot(train.XY$X,train.XY$Y, main = "Scatter Plot of Sale Price and Overall Housing Quality", xlab = "Overall Quality", ylab = "Sale Price")
+#Right away we see what appears to be a strong linear relationship between the two variables
+
+#Provide a 95% CI for the difference in the mean of the variables.
+t.test(train.XY$X) #CI for X (House Quality)
+t.test(train.XY$Y) #CI for Y (Sales Price)
+
+#Derive a correlation matrix for two of the quantitative variables you selected.
+train.df <- data.frame(Y = train.XY$Y, X = train.XY$X)
+cor.matrix <- cor(train.df)
+
+#Test the hypothesis that the correlation between these variables is 0 and provide a 99% confidence interval.
+#Ho: correlation between x and y = 0
+#Ha: correlation not equal to 0
+#p-value < 2.2e-16, which is much smaller than significance level at 99%, so we reject the null hypothesis. 
+#also, the confidence interval at 99% confidence is 0.7643382 0.8149288, which does not include 0 within it's parameters (and is no where near 0). This means that we can be very confident that there is a correlation between sale price and overall housing quality, and that it is somewhere between .76 and .81. 
+cor.test(train.df$Y, train.df$X, conf.level = 0.99)
+```
+Linear Algebra and Correlation
+```{r linear algebra and correlation}
+#Inverting correlation matrix.
+precision.matrix <- solve(cor.matrix)
+#Multiplying the correlation matrix by the precision matrix, and then multiplying the precision matrix by the correlation matrix.
+cor.matrix%*%precision.matrix
+precision.matrix%*%cor.matrix
+
+#Conducting principle components analysis  
+log.train.df <- log(train.df) #log transform
+head(log.train.df)
+head(train.df)
+train.pca <- prcomp(log.train.df, center = TRUE, scale. = TRUE) #apply PCA
+print(train.pca) #here are the coefficients. If I am reading this correctly (odd given only 2 variables), it says the first coefficient regards the positive correlation between sales price and quality, mainly that the sales prices takes into account demand for higher quality houses. The second coefficient seems to regard a negative correlation, which isn't entirely explainable with only two variables, but perhaps alludes to less demand for the nicest houses that are out of most people's budgets. 
+plot(train.pca, type = "l") #the plot shows that the first principal component (the correlation between quality and price) is the most useful and accounts for most of the variance
+
+biplot(train.pca) #A bit of a mess, but demonstrates how strongly the variables correlate
+
+summary(train.pca) #similarly, the summary shows the importance of the principal components, with first component accounting for nearly 90% of the variance, and the second only the remaining 10%. (this is obviously not as useful with only 2 variables)
+```
+Calculus Based Probability and Statistics
+```{r calculus and statistics}
+#My variable already has a minimum value is above zero.
+summary(train.df$X)
+
+#Running fitdistr to fit an exponential probability density function.
+fit.exp.X <- fitdistr(train.df$X, "exponential")
+
+#Taking 1000 samples from this exponential distribution using this value.  
+rand.samp.1k <- rexp(1000, fit.exp.X$estimate)
+
+#Plotting a histogram and comparing it with a histogram of the original variable.
+hist(rand.samp.1k, main = "Histogram of exponential distribution")
+hist(train.df$X, main = "Histogram of overall housing quality" )
+#the exponential distribution is echoing the dominant right side curve of the quality of housing data histogram
+
+#Using the exponential pdf, finding the 5th and 95th percentiles using the cumulative distribution function (CDF).
+cdf.fit <- ecdf(rand.samp.1k)
+plot(cdf.fit) #strong right tail
+
+quantile(cdf.fit, c(.05, .5, .95))
+
+#Also generate a 95% confidence interval from the empirical data, assuming normality.
+t.test(train.XY$X)
+quantile(train.df$X, c(.05, .5, .95))
+
+#The exponential distribution has a much larger spread, although they have somewhat comparable means
+```
+Modelling
+```{r modelling}
+lm.fit <- lm(train.df$Y ~ train.df$X)
+summary(lm.fit)
+```
+
+```{r data exploration for kaggle}
+#extract expected to be useful quant variables
+train.useful.quant <- data.frame(
+  saleprice = train.raw.data$SalePrice,
+  lotfrontage = train.raw.data$LotFrontage,
+  lotarea = train.raw.data$LotArea,
+  yearbuilt = train.raw.data$YearBuilt,
+  totalbsmtsf = train.raw.data$TotalBsmtSF,
+  fstflrsf = train.raw.data$X1stFlrSF,
+  grlivarea = train.raw.data$GrLivArea,
+  bedroom = train.raw.data$BedroomAbvGr,
+  totalrooms = train.raw.data$TotRmsAbvGrd,
+  garagearea = train.raw.data$GarageArea,
+  yrsold = train.raw.data$YrSold,
+  overallqual = train.raw.data$OverallQual,
+  overallcond = train.raw.data$OverallCond
+)
+
+#examine histograms
+par(mfrow = c(3,5))
+colnames <- dimnames(train.useful.quant)[[2]]
+for (i in 1:13) {
+  hist(train.useful.quant[,i], main=colnames[i], probability=TRUE, col="gray", border="white")
+}
+
+#play with PCA
+train.useful.pca <- prcomp(~., data = train.useful.quant, center = TRUE, scale. = TRUE, na.action=na.omit)
+#summary(train.useful.pca)
+print(train.useful.pca)
+par(mfrow=c(1,1))
+plot(train.useful.pca, type = "l")
+#looks like key components are general quality/size of house (PC1), number of bedrooms (PC2), size of land (PC3), year sold, presumably due to market fluctuations (PC4), condition of the house (PC5), and that's probably as far as we need to go
+
+pairs(train.useful.quant) #eyeballing suggests general living area and overall quality have the strongest correlation to sales price
+# 
+#start to experiment with linear model
+train.useful.quant <- na.omit(train.useful.quant)
+lm1 <- lm(saleprice ~., data=train.useful.quant, na.action=na.omit)
+summary(lm1)
+#baseline adjusted r-squared is .7807
+
+lm1.step <- stepAIC(lm1, direction ="both")
+lm1.step$anova #says to take out lotfrontage and yrsold
+
+lm2 <- update(lm1, .~. -lotfrontage, -yrsold)
+summary(lm2)
+#adjusted R-squared of .7809
+
+#Applying the model to test data
+
+#extract expected to be useful quant variables
+test.raw.data <- read.csv('https://raw.githubusercontent.com/aagoldberg/Cuny/master/test.csv', header = T)
+test.useful <- data.frame(
+  id = test.raw.data$Id,
+  lotfrontage = test.raw.data$LotFrontage,
+  lotarea = test.raw.data$LotArea,
+  yearbuilt = test.raw.data$YearBuilt,
+  totalbsmtsf = test.raw.data$TotalBsmtSF,
+  fstflrsf = test.raw.data$X1stFlrSF,
+  grlivarea = test.raw.data$GrLivArea,
+  bedroom = test.raw.data$BedroomAbvGr,
+  totalrooms = test.raw.data$TotRmsAbvGrd,
+  garagearea = test.raw.data$GarageArea,
+  yrsold = test.raw.data$YrSold,
+  overallqual = test.raw.data$OverallQual,
+  overallcond = test.raw.data$OverallCond
+)
+
+pred <- predict(lm2, test.useful)
+head(pred)
+kaggle.entry <- data.frame(Id = test.useful$id, SalePrice = pred)
+head(kaggle.entry)
+write.csv(kaggle.entry, file = "ForKagglev1.csv",row.names=F)
+
+#username: deepthoughts
+#score: 0.82384
+```
